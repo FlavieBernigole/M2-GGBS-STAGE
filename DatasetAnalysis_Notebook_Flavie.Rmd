@@ -3,20 +3,6 @@ title: "DatasetAnalysis Notebook Flavie"
 output: html_notebook 
 ---
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
-
-```{r}
-#working.dir.path = '~/EP2C/Seqwell/scRNAseq_15062023'
-#knitr::opts_chunk$set(root.dir = working.dir.path) #to change the working directory for all code chunck
-#options(future.globals.maxSize = 8000 * 1024^5)
-```
-
-
 ```{r Libraries, source functions, and parameters}
 
 library(knitr)
@@ -81,9 +67,7 @@ mouse.gene.list = c("Epcam", "Krt14", "Krt8", "Krt18", "Ptprc")
 if(!exists("marts")){
   marts <- loadmarts()
 } 
-
 ```
-
 
 ```{r Generate an object based on STARsolo}
 
