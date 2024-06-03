@@ -1,9 +1,8 @@
 ---
-title: "html_documents_INV"
+title: "CellChat"
 output:
-  html_document:
-    encoding: UTF-8
-  word_document: default
+html_document:
+encoding: UTF-8
 ---
 
 ```{r setup, include=FALSE}
