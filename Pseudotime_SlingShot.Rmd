@@ -1,0 +1,157 @@
+---
+title: "Pseudotime-BT100-20220318-DMSO-DMSO"
+author: "Jennifer DERRIEN"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# chargement des librairies
+library(ggplot2)
+library(Seurat)
+library(clustree)
+library(dplyr)
+library(openxlsx)
+library(data.table)
+library(ggpubr)
+library(dittoSeq)
+library(scales)
+library(RColorBrewer)
+library(viridis)
+sample <- readRDS("BT100-20220318_DMSO-DMSO.rds")
+```
+
+## Slingshot 
+
+```{r , fig.height=7, fig.width=10, results='asis',echo=F, warning=F, message=F}
+library(slingshot)
+#Calculate pseudotime and lineages with Slingshot
+Idents(sample) <- "RNA_snn_res.0.2"
+sce <- slingshot(as.SingleCellExperiment(sample), clusterLabels = "RNA_snn_res.0.2", reducedDim = "UMAP", allow.breaks = FALSE)
+# get the lineages:
+lnes <- getLineages(reducedDim(sce,"UMAP"), sce$ident)
+cat("Lineage detected")
+cat("\n")
+lnes@metadata$lineages
+cell_pal <- function(cell_vars, pal_fun,...) {
+  if (is.numeric(cell_vars)) {
+    pal <- pal_fun(100, ...)
+    return(pal[cut(cell_vars, breaks = 100)])
+  } else {
+    categories <- sort(unique(cell_vars))
+    pal <- setNames(pal_fun(length(categories), ...), categories)
+    return(pal[cell_vars])
+  }
+}
+
+cell_colors_clust <- cell_pal(sample$RNA_snn_res.0.2, hue_pal())
+
+plot(reducedDims(sce)$UMAP, col = cell_colors_clust, pch = 16, cex = 0.5,asp = 1) 
+lines(SlingshotDataSet(lnes), lwd = 1, type = 'lineages', col = 'black')
+
+
+plot(reducedDims(sce)$UMAP, col = cell_colors_clust, pch = 16, cex = 0.5, asp = 1)
+
+# Extraire les courbes pour chaque lignage
+lnes <- SlingshotDataSet(sce)
+curves <- lnes@curves
+
+# Définir les couleurs des lignages
+lineage_colors <- c("#F31559", "#0802A3")
+
+# Tracer chaque lignage avec une couleur différente
+for (i in seq_along(curves)) {
+    curve <- curves[[i]]
+    lines(curve$s[ , 1], curve$s[ , 2], col = lineage_colors[i], lwd = 4)
+}
+
+# full plot
+pt <- slingPseudotime(sce)
+nc <- 2
+nms <- colnames(pt)
+nr <- ceiling(length(nms)/nc)
+pal <- viridis(100, end = 0.95)
+par(mfrow = c(nr, 2))
+for (i in nms) {
+    colors <- pal[cut(pt[,i], breaks = 100)]
+    plot(reducedDims(sce)$UMAP, col = colors, pch = 16, cex = 0.5, main = i)
+    curve <- curves[[i]]
+    lines(curve$s[ , 1], curve$s[ , 2], col = "black", lwd = 2)
+
+}
+
+lgd <- matrix(hcl.colors(50), nrow=1)
+rasterImage(lgd, 2,-3,6,-3.5)
+text(c(2,6), c(-3.5,-3.5), pos = 1, cex = .7,
+     labels = format(range(slingPseudotime(sce), na.rm = TRUE), digits = 3))
+text(3, -3, pos = 3, cex = .7, labels = 'Pseudotime')
+
+```
+
+
+## Monocle3 (point de départ fixé au cluster 3)
+
+```{r , fig.height=7, fig.width=10, results='asis',echo=F, warning=F, message=F }
+library(monocle3)
+library(SeuratWrappers)
+
+#convert seurat object to cell_data_sett Object for monocle3
+Idents(sample) <- "RNA_snn_res.0.2"
+cds <- as.cell_data_set(sample)
+
+#assign partitions 
+partitions <- cds@clusters$UMAP$clusters
+cds@clusters$UMAP$partitions <- partitions
+
+#Learn trajectory graph 
+cds <- learn_graph(cds)
+
+# a helper function to identify the root principal points:
+get_earliest_principal_node <- function(cds, time_bin="4"){
+    cell_ids <- which(colData(cds)[, "RNA_snn_res.0.2"] == "4")
+    
+    closest_vertex <-
+        cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+    closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+    root_pr_nodes <-
+        igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+                                                                  (which.max(table(closest_vertex[cell_ids,]))))]
+    
+    root_pr_nodes
+}
+cds <- order_cells(cds, root_pr_nodes=get_earliest_principal_node(cds))
+
+#cds = order_cells(cds, root_cells = root_group)
+plot_cells(cds, color_cells_by = 'pseudotime', label_branch_points = F, label_roots = F, label_leaves = F,trajectory_graph_color = "#210062",  trajectory_graph_segment_size =1.5,cell_size = 0.8) 
+
+cds$monocle3_pseudotime <- pseudotime(cds)
+data.pseudo <- as.data.frame(colData(cds))
+sample <- AddMetaData(sample,pseudotime(cds),col.name = "monocle3_pseudotime")
+
+p1 <- DimPlot(sample) + ggtitle("")
+p2 <- plot_cells(cds, color_cells_by = 'pseudotime', label_branch_points = F, label_roots = F, label_leaves = F,trajectory_graph_color = "#210062",  trajectory_graph_segment_size =0) 
+p3 <- ggplot(data.pseudo, aes(monocle3_pseudotime, reorder(RNA_snn_res.0.2, monocle3_pseudotime, median), fill = RNA_snn_res.0.2)) + geom_boxplot() + NoLegend() + ylab("")
+((p1 / p2) | (p3)) 
+
+FeaturePlot(sample, features="monocle3_pseudotime", cols=hcl.colors(50))
+
+rowData(cds)$gene_name <- rownames(cds)
+rowData(cds)$gene_short_name <- rowData(cds)$gene_name
+gene_fits <- fit_models(cds, model_formula_str = "~pseudotime", verbose = F)
+
+cds_pt_res <- graph_test(cds, neighbor_graph = "principal_graph",cores=8, verbose = F)
+cds_pt_res <- na.omit(cds_pt_res)
+cds_pt_res <- cds_pt_res[cds_pt_res$p_value < 0.05 & cds_pt_res$status ==  "OK",]
+cds_pt_res[order(-cds_pt_res$morans_test_statistic),]
+plot_cells(cds, genes=cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[1:12], show_trajectory_graph = F, label_cell_groups = F, label_leaves = F)
+
+
+(( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[1]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[1])) +( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[2]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[2]))) /  (( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[3]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[3])) +( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[4]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[4])))
+
+(( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[5]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[5])) +( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[6]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[6]))) /  (( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[7]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[7])) +( FeatureScatter(sample, feature1 = "monocle3_pseudotime", feature2 = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[8]) + labs(subtitle = cds_pt_res[order(-cds_pt_res$morans_test_statistic),]$gene_name[8])))
+
+```
+
+
+
