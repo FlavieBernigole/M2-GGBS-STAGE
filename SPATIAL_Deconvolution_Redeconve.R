@@ -1,3 +1,4 @@
+#Chargement des librairies
 library(STdeconvolve)
 library(Seurat)
 library(SeuratData)
@@ -6,7 +7,7 @@ library(S4vectors)
 library(ggplot2)
 library(spacexr)
 
-
+#Chargement des données spatial
 Test<-Load10X_Spatial(data.dir = "~/EP2C/10x_6573G/10x-D24-270-outs/")
 Test<- SCTransform(Test, assay = "Spatial", verbose = FALSE)
 Test <- RunPCA(Test, assay = "SCT", verbose = FALSE)
@@ -16,7 +17,7 @@ Test <- RunUMAP(Test, reduction = "pca", dims = 1:30)
 Test <- RunTSNE(Test, dims = 1:10)
 Test <- SCTransform(Test, assay = "Spatial", verbose = TRUE) %>% RunPCA(verbose = FALSE)
 
-
+"Mise en place des variables pour la déconvolution
 cd <- Test[["Spatial"]]$counts
 pos <- GetTissueCoordinates(Test)
 colnames(pos) <- c("x", "y")
