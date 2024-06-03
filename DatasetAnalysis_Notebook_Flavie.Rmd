@@ -1,0 +1,1746 @@
+---
+title: "DatasetAnalysis Notebook Flavie"
+output: html_notebook 
+---
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+#working.dir.path = '~/EP2C/Seqwell/scRNAseq_15062023'
+#knitr::opts_chunk$set(root.dir = working.dir.path) #to change the working directory for all code chunck
+#options(future.globals.maxSize = 8000 * 1024^5)
+```
+
+
+```{r Libraries, source functions, and parameters}
+
+library(knitr)
+library(Seurat)
+library(tidyverse)
+library(magrittr)
+library(rhdf5)
+library(biomaRt)
+library(signatureSearchData)
+library(ExperimentHub)
+library(signatureSearch)
+library(HDF5Array)
+library(ActivePathways)
+library(msigdbr)
+library(piano)
+library(dorothea)
+library(progeny)
+library(pheatmap)
+library(flashClust)
+library(Hmisc)
+library(openxlsx)
+library(cowplot)
+library(scales)
+library(ade4)
+library(lsr)
+library(RColorBrewer)
+library(cmapR)
+library(fgsea)
+library(SparseM)
+library(Matrix)
+library(tidyverse)
+library(fields)
+library(KernSmooth)
+library(modes)
+library(ROCR)
+library(umap)
+theme_set(theme_classic())
+
+# Filepath to sample sheet, where the samplesheet contains paths to STARsolo outputs and metadata you'd like to record
+STARsolo.sample.sheet = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/1_STARsolo_Preprocess/STARsolo_SampleSheet.csv"
+
+# Filepath to marker genes for cell types you're interested in
+markers.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/markers_genes_MG.txt"
+module.markers <- read.table(markers.path, header = T, fill = T, sep = "\t")
+
+# Read in helper functions
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/down_sampling_complexity.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/PCAcorrplotCT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/Preprocess_QC_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/celltypescoring_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/Pathway_List_Scoring_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/MAST_DE_Function_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/matched_expression_ctrl_gene_module_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/fgsea_wrappers_CT.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/speciesconversion_biomart.R")
+source("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/AncestralWisdom/celltypeproportions_CT.R")
+
+# Helpful setup of variables/paths for later
+STARsolo.fig.dir <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2"
+project.name <- "VPLI_C57Bl6_152926"
+mouse.gene.list = c("Epcam", "Krt14", "Krt8", "Krt18", "Ptprc")
+if(!exists("marts")){
+  marts <- loadmarts()
+} 
+
+```
+
+
+```{r Generate an object based on STARsolo}
+
+QC_visualize(species = "Mm", sample_sheet = STARsolo.sample.sheet, pipeline_in = "STARsolo", figdir = STARsolo.fig.dir) 
+
+STARsolo.fig.dir <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/STARsolo_QC_figdirmerge152926_8mito"
+min.feat = 200 #these values are determined from the QC_vizualize file from above
+min.UMI = 200
+max.UMI = 100000
+max.mito = 8
+res.min = 0.3
+res.max = 1.3
+
+Objs = QC_preprocess(species = "Mm", gene_list = mouse.gene.list, pipeline_in = "STARsolo", min_UMI = min.UMI, min_feat = min.feat, max_UMI = max.UMI, max_mito = max.mito, res_min = res.min, res_max = res.max,sample_sheet = STARsolo.sample.sheet, figdir = STARsolo.fig.dir, percent.patterns.to.set = c("^mt-", "^Rp"), percent.features.names = c("percent.mt", "percent.ribo"),) 
+#saveRDS(Objs, "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Objs_152926.rds")
+###Change MT to mt for mouse and RP to Rp, this is why I added this part of the QC_preprocess function
+#saveRDS(Objs, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024")
+
+temporary_count <- 0
+n = length(Objs)
+start <- Sys.time()
+n_sample = length(Objs)
+if(exists("seurat.bigboi")){rm(seurat.bigboi)} 
+for (ii in 1:n_sample){ #for every item from 1 to 5 (nb of samples), do the for loop
+  
+  print(paste("Starting on sample ", names(Objs[ii]), " at ", Sys.time(), ". This is sample ", ii, " of ", n_sample, sep=""))
+  
+  Obj_postqc_ii = Objs[[ii]]
+  temporary_count <- temporary_count + ncol(Obj_postqc_ii)
+  
+  print('The following number of cells have been accessed from post-QC objects:')
+  print(temporary_count)
+  
+  if(!is.null(Obj_postqc_ii)){
+    if (!exists("seurat.bigboi")){
+      seurat.bigboi <- Obj_postqc_ii
+      
+    } else {
+      seurat.bigboi <- merge(seurat.bigboi, y = Obj_postqc_ii, project = project.name, merge.data = TRUE)
+      print('The following number of cells are currently in seurat.bigboi:')
+      print(ncol(seurat.bigboi))
+    }
+  } 
+}
+
+
+seurat.bigboi$percent.mt = PercentageFeatureSet(seurat.bigboi, pattern = "^mt-") 
+finish <- Sys.time()
+print(finish - start)
+
+figdir.cluster <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2"
+project.name <- "VPLI_C57Bl6_15_29_26_lessmito300minfeatandUMI_optimized.rds"
+
+if(exists("Objs")){rm(Objs)} #remove because you have seurat.bigboi with all the data
+
+if(!exists("seurat.bigboi")){
+  seurat.bigboi <- readRDS(paste0(figdir.cluster, "/", project.name, "_nonoptimized.rds"))
+}
+
+STARsolo.optimal.obj <- GenClustObj(seurat.bigboi, sample_name = project.name, figdir = figdir.cluster,
+                                    rerun.SCT = TRUE, res.n = 20, res_min = res.min, res_max = res.max,
+                                    vars.to.regress.genclust.in = NULL, 
+                                    phase.score = FALSE,
+                                    percent.patterns.to.set = c("^mt-", "^Rp"), 
+                                    percent.features.names = c("percent.mt", "percent.ribo"), 
+                                    hush.in = FALSE)
+
+STARsolo.optimal.obj <- celltypescoring.CT(filepath.in = STARsolo.optimal.obj, 
+                                           markers = module.markers, 
+                                           dimplot_split_in = c("orig.ident"), 
+                                           barstacks_in = c("orig.ident"), 
+                                           featureplot_variable_in = list("percent.mt","percent.ribo", "nCount_RNA", "nFeature_RNA"),
+                                           figdir.in = figdir.cluster,
+                                           project.name.in = project.name, save.tiered.folder = FALSE)
+
+saveRDS(STARsolo.optimal.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+```
+
+```{r Create umap of interest}
+STARsolo.group.pregnant.samples <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("P1","P2")],
+  reduction = "umap",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot1<- plot(STARsolo.group.pregnant.samples)
+
+
+
+STARsolo.group.pregnant.samples.pca <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("P1","P2")],
+  reduction = "pca",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot2<-plot(STARsolo.group.pregnant.samples.pca)
+
+
+STARsolo.group.pregnant.samples <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("V1","V2")],
+  reduction = "umap",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot3<-plot(STARsolo.group.pregnant.samples)
+
+STARsolo.group.pregnant.samples.pca <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("V1","V2")],
+  reduction = "pca",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot4<-plot(STARsolo.group.pregnant.samples.pca)
+
+
+STARsolo.group.pregnant.samples <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("N1","N2")],
+  reduction = "umap",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot5<-plot(STARsolo.group.pregnant.samples)
+
+STARsolo.group.pregnant.samples.pca <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("N1","N2")],
+  reduction = "pca",
+  raster = TRUE,
+  group.by = c("orig.ident")
+)
+plot6<-plot(STARsolo.group.pregnant.samples.pca)
+
+
+
+
+
+# Définir les couleurs pour chaque groupe
+group_colors <- c("290224"= "magenta", "150623"="cyan","26042024"="yellow")
+
+
+plot1 <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$Sequencing.Date %in% c("290224","150623","26042024")],
+  reduction = "umap",
+  raster = TRUE,
+  group.by = c("Sequencing.Date"),
+  cols = group_colors
+)
+
+
+group_colors_3 <- c("Involution" = "yellow", "Virgin" = "red", "Pregnant" = "green", "Lactation" = "blue")
+plot2 <- DimPlot(
+  STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")],
+  reduction = "umap",
+  raster = TRUE,
+  group.by = c("dvpmt.stage"),
+  cols = group_colors_3
+)
+
+
+
+#STARsolo.splitbysample <- DimPlot(STARsolo.optimal.obj, reduction = "umap", raster = TRUE, split.by = c("orig.ident"), ncol = 3) 
+#plot9<-plot(STARsolo.splitbysample)
+
+
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/umapofinterest_15_29_26.pdf")
+plot1
+plot2
+dev.off()
+
+
+Idents(STARsolo.optimal.obj) <- "RNA_snn_res.0.3"
+STARsolo.optimal.obj <- pathway.analysis.CT(folderpath.in = STARsolo.optimal.obj,
+                                            figdir.in = figdir.cluster, marker.logfc.thresh = 0.5, 
+                                            project.name.in = project.name, gsea.category = "C5", gsea.subcategory = "GO:BP", 
+                                            run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE, 
+                                            gsea.species = "Mus musculus") #by precising gsea.species it will look only for mouse genes
+DefaultAssay(STARsolo.optimal.obj) <- "RNA"
+saveRDS(STARsolo.optimal.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds")) #return excel file for each sample with p-values
+
+## At this point, annotate the clusters manually by creating a new excel file
+```
+
+
+```{r Examine initial pass at optimized object}
+###############################
+if(!exists("STARsolo.optimal.obj")){
+  STARsolo.optimal.obj <- readRDS("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/VPL_C57Bl6_300minfeatandUMI_optimized.rds_optimized.rds")
+}
+
+gene.of.int <-c("Krt14","Krt8","Epcam","Jchain")
+#p1<-FeaturePlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("V1", "V2", "N1","N2","P1","P2","Involution","Virgin","Virgin-Ki","Pregnant","Lactation")], features = gene.of.int, order = TRUE)
+#p2<-VlnPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$orig.ident %in% c("V1", "V2", "N1","N2","P1","P2","Involution","Virgin","Virgin-Ki","Pregnant","Lactation")], features = gene.of.int, pt.size = 0, group.by = "seurat_clusters", split.by = "orig.ident", split.plot = TRUE)
+
+p3<-FeaturePlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], features = gene.of.int, pt.size = 0, group.by = "seurat_clusters", split.by = "dvpmt.stage", split.plot = TRUE)
+p4<-VlnPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], features = gene.of.int, pt.size = 0, group.by = "seurat_clusters", split.by = "dvpmt.stage", split.plot = TRUE)
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/geneofint.pdf")
+p3
+p4
+dev.off()
+
+```
+
+
+```{r Annotate VPL object}
+###Annotate with Fibroblasts, MammaryEpiCells, ImmuneCells and JunkCells
+
+if(!exists("STARsolo.optimal.obj")){
+  STARsolo.optimal.obj <- readRDS("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/VPLI_C57Bl6_15_29_300minfeatandUMI_optimized.rds_optimized.rds")
+}
+
+Idents(STARsolo.optimal.obj) <- "RNA_snn_res.0.3"
+new.cluster.ids <- c("ImmuneCells","StromalCells","MammaryEpiCells","MammaryEpiCells","MammaryEpiCells","ImmuneCells","ImmuneCells","MammaryEpiCells","ImmuneCells","JunkCells","StromalCells","MammaryEpiCells","JunkCells","JunkCells","ImmuneCells","ImmuneCells","MammaryEpiCells")
+Idents(STARsolo.optimal.obj) <- "RNA_snn_res.0.3"
+STARsolo.optimal.obj$round1.tier1 <- factor(STARsolo.optimal.obj$RNA_snn_res.0.3, labels = new.cluster.ids)
+p3<-DimPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Virgin", "Pregnant", "Lactation","Involution")], reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier1") + NoLegend()
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round1.tier1.pdf")
+p3
+dev.off()
+
+
+### add number to the cluster names (1,2,3)
+
+new.cluster.ids <- c("ImmuneCells1","StromalCells1","MammaryEpiCells1","MammaryEpiCells2","MammaryEpiCells3","ImmuneCells2","ImmuneCells3","MammaryEpiCells4","ImmuneCells4","JunkCells1","StromalCells2","MammaryEpiCells5","JunkCells2","JunkCells3","ImmuneCells5","ImmuneCells6","MammaryEpiCells6")
+Idents(STARsolo.optimal.obj) <- "seurat_clusters"
+STARsolo.optimal.obj$round1.tier1.5 <- factor(STARsolo.optimal.obj$RNA_snn_res.0.3, labels = new.cluster.ids)
+p4<-DimPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Virgin", "Pregnant", "Lactation","Involution")], reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier1.5") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round1.tier1merged2.pdf")
+p4
+dev.off()
+
+saveRDS(STARsolo.optimal.obj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/STARsolo.optimal.obj.rds")
+
+```
+
+
+```{r Subcluster VPL object}
+# Split the object by cell type, and re-cluster each cell type on its own to identify more refined subpopulations
+
+starsolo.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/VPL_C57Bl6_300minfeatandUMI_optimized.rds_optimized.rds"
+if(!exists("STARsolo.optimal.obj")){STARsolo.optimal.obj <- readRDS(starsolo.path)} 
+
+col.clusters <- list("ImmuneCells1","StromalCells1","MammaryEpiCells1","MammaryEpiCells2","MammaryEpiCells3","ImmuneCells2","ImmuneCells3","MammaryEpiCells4","ImmuneCells4","JunkCells1","StromalCells2","MammaryEpiCells5","JunkCells2","JunkCells3","ImmuneCells5","ImmuneCells6","MammaryEpiCells6")
+col.labels <- list("ImmuneCells1","StromalCells1","MammaryEpiCells1","MammaryEpiCells2","MammaryEpiCells3","ImmuneCells2","ImmuneCells3","MammaryEpiCells4","ImmuneCells4","JunkCells1","StromalCells2","MammaryEpiCells5","JunkCells2","JunkCells3","ImmuneCells5","ImmuneCells6","MammaryEpiCells6")
+
+dimplot.split.iter = c("Protocol", "dvpmt.stage")
+barstacks.list <- c(dimplot.split.iter)
+
+for(jj in 1:length(col.clusters)){
+  clusters.jj <- col.clusters[[jj]]
+  labels.jj <- col.labels[[jj]]
+  print(paste0("Starting on cluster ", labels.jj, " at ", Sys.time(), ". This is cluster ", jj, " of ", length(col.labels)))
+  obj.jj <- STARsolo.optimal.obj[,STARsolo.optimal.obj$round1.tier1.5 %in% clusters.jj]
+  categ.metadata <- c(barstacks.list, "RNA_snn_res.0.3")
+  figdir.cluster.jj <- paste0("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2")
+  project.name.jj <- paste0("VPL_STARsolo_Round1Tier2_", labels.jj)
+  seurat.subset.path.jj <- paste0(figdir.cluster.jj, "/", project.name.jj, ".rds")
+  
+  obj.jj <- GenClustObj(obj.jj,
+                        res_min = 0.2, res_max = 1.2, res.n = 20,
+                        percent.patterns.to.set = c("^mt-", "^Rpl|^Rpp|^Rps", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                        percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                        phase.score = FALSE, s.genes.in = cc.genes$s.genes, g2m.genes.in = cc.genes$g2m.genes,
+                        sample_name = project.name.jj, figdir = figdir.cluster.jj,
+                        vars.to.regress.genclust.in = NULL, hush.in = FALSE) ## had to put hush.in = FALSE instead of TRUE ###
+  
+  obj.jj <- celltypescoring.CT(filepath.in = obj.jj, markers = module.markers, figdir.in = figdir.cluster.jj,
+                               project.name.in = project.name.jj, save.tiered.folder = FALSE,
+                               dimplot_split_in = dimplot.split.iter, barstacks_in = barstacks.list)
+  
+  ### PCA.corr.plot.CT(seurat.bigboi = obj.jj, PCs.in = obj.jj@misc$nPCs,
+                 #  quant.metadata.in = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+                 #  categ.metadata.in = categ.metadata,
+                  # figdir = figdir.cluster.jj,
+                   #sample_name = project.name.jj)             not working
+  
+  obj.jj <- pathway.analysis.CT(folderpath.in = obj.jj,
+                                figdir.in = figdir.cluster.jj, marker.logfc.thresh = 0.75,
+                                run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE,
+                                project.name.in = project.name.jj, gsea.category = "H", gsea.subcategory = NA, gsea.species = "Mus musculus") #gsea.category = "H" is for hallmark gene set
+  
+  saveRDS(obj.jj, file = seurat.subset.path.jj)
+  
+}
+
+```
+
+
+```{r Annotate VPL JunkCells}
+# Examine and annotate each cell type-specific object
+########
+JunkCells1 <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_JunkCells1.rds"
+if(!exists("JunkCells1.obj")){
+  JunkCells1.obj <- readRDS(JunkCells1)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","Tcells","JunkCells")
+Idents(JunkCells1.obj) <- "seurat_clusters"
+JunkCells1.obj$round1.tier2 <- factor(JunkCells1.obj$seurat_clusters, labels = new.cluster.ids)
+p1junk<-DimPlot(JunkCells1.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateJunkCells1.pdf")
+p1junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(JunkCells1.obj@meta.data$dvpmt.stage, JunkCells1.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(JunkCells1.obj, file = JunkCells1)
+
+
+
+########
+JunkCells2 <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_JunkCells2.rds"
+if(!exists("JunkCells2.obj")){
+  JunkCells2.obj <- readRDS(JunkCells2)
+}
+
+
+new.cluster.ids <- c("JunkCells","Bcells","JunkCellsOK","Fibroblasts","JunkCellsOK","JunkCells","BasalCells","JunkCells","JunkCellsOK","Bcells")
+Idents(JunkCells2.obj) <- "seurat_clusters"
+JunkCells2.obj$round1.tier2 <- factor(JunkCells2.obj$seurat_clusters, labels = new.cluster.ids)
+p2junk<-DimPlot(JunkCells2.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateJunkCells2.pdf")
+p2junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(JunkCells2.obj@meta.data$dvpmt.stage, JunkCells2.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(JunkCells2.obj, file = JunkCells2)
+
+
+
+##########
+JunkCells3 <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_JunkCells3.rds"
+if(!exists("JunkCells3.obj")){
+  JunkCells3.obj <- readRDS(JunkCells3)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","JunkCellsOK","JunkCells","JunkCellsOK","Fibroblasts","JunkCellsOK","JunkCellsOK","BasalCells")
+Idents(JunkCells3.obj) <- "seurat_clusters"
+JunkCells3.obj$round1.tier2 <- factor(JunkCells3.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(JunkCells3.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateJunkCells3.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(JunkCells3.obj@meta.data$dvpmt.stage, JunkCells3.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(JunkCells3.obj, file = JunkCells3)
+
+```
+
+
+```{r Annotate VPL ImmuneCells}
+# Examine and annotate each cell type-specific object
+
+#########
+Immune1.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells1.rds"
+if(!exists("Immune1.obj")){
+  Immune1.obj <- readRDS(Immune1.path)
+}
+
+
+new.cluster.ids <- c("JunkCells","JunkCells","JunkCells","JunkCells","ImmuneCells")
+Idents(Immune1.obj) <- "seurat_clusters"
+Immune1.obj$round1.tier2 <- factor(Immune1.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune1.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune1.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune1.obj@meta.data$dvpmt.stage, Immune1.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune1.obj, file = Immune1.path)
+
+
+#########
+Immune2.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells2.rds"
+if(!exists("Immune2.obj")){
+  Immune2.obj <- readRDS(Immune2.path)
+}
+
+
+new.cluster.ids <- c("Tcells","ImmuneCells","ImmuneCells","Tcells","JunkCellsOK","Tcells","Tcells","JunkCellsOK","JunkCellsOK","Bcells","Tcells","JunkCellsOK","JunkCellsOK")
+Idents(Immune2.obj) <- "seurat_clusters"
+Immune2.obj$round1.tier2 <- factor(Immune2.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune2.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune2.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune2.obj@meta.data$dvpmt.stage, Immune2.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune2.obj, file = Immune2.path)
+
+
+
+#######
+Immune3.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells3.rds"
+if(!exists("Immune3.obj")){
+  Immune3.obj <- readRDS(Immune3.path)
+}
+
+
+new.cluster.ids <- c("Bcells","Bcells","Bcells","Bcells", "ImmuneCells","JunkCells","JunkCellsOK","JunkCellsOK","JunkCellsOK")
+Idents(Immune3.obj) <- "seurat_clusters"
+Immune3.obj$round1.tier2 <- factor(Immune3.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune3.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune3.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune3.obj@meta.data$dvpmt.stage, Immune3.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune3.obj, file = Immune3.path)
+
+
+
+#######
+Immune4.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells4.rds"
+if(!exists("Immune4.obj")){
+  Immune4.obj <- readRDS(Immune4.path)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","ImmuneCells","JunkCellsOK","JunkCellsOK","ImmuneCells","ImmuneCells","ImmuneCells","JunkCellsOK","JunkCellsOK","ImmuneCells","ImmuneCells","ImmuneCells","ImmuneCells")
+Idents(Immune4.obj) <- "seurat_clusters"
+Immune4.obj$round1.tier2 <- factor(Immune4.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune4.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune4.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune4.obj@meta.data$dvpmt.stage, Immune4.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune4.obj, file = Immune4.path)
+
+#######
+Immune5.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells5.rds"
+if(!exists("Immune5.obj")){
+  Immune5.obj <- readRDS(Immune5.path)
+}
+
+
+new.cluster.ids <- c("Fibroblasts","JunkCellsOK","MammaryEpiCells","JunkCellsOK","Bcells","JunkCellsOK","JunkCells","JunkCellsOK")
+Idents(Immune5.obj) <- "seurat_clusters"
+Immune5.obj$round1.tier2 <- factor(Immune5.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune5.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune5.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune5.obj@meta.data$dvpmt.stage, Immune5.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune5.obj, file = Immune5.path)
+
+#######
+Immune6.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells6.rds"
+if(!exists("Immune6.obj")){
+  Immune6.obj <- readRDS(Immune6.path)
+}
+
+
+new.cluster.ids <- c("JunkCells","JunkCellsOK")
+Idents(Immune6.obj) <- "seurat_clusters"
+Immune6.obj$round1.tier2 <- factor(Immune6.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Immune6.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateImmune6.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Immune6.obj@meta.data$dvpmt.stage, Immune6.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Immune6.obj, file = Immune6.path)
+
+```
+
+
+```{r Annotate VPL StromalCells}
+# Examine and annotate each cell type-specific object
+
+
+Stromal1.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_StromalCells1.rds"
+if(!exists("Stromal1.obj")){
+  Stromal1.obj <- readRDS(Stromal1.path)
+}
+
+
+new.cluster.ids <- c("Fibroblasts","Fibroblasts","ImmuneCells","Fibroblasts","JunkCellsOK","Fibroblasts","Fibroblasts","JunkCellsOK","JunkCellsOK","StromalCells","Fibroblasts","Fibroblasts","BasalCells")
+Idents(Stromal1.obj) <- "seurat_clusters"
+Stromal1.obj$round1.tier2 <- factor(Stromal1.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Stromal1.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateStromal1.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Stromal1.obj@meta.data$dvpmt.stage, Stromal1.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Stromal1.obj, file = Stromal1.path)
+
+
+
+
+
+Stromal2.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_StromalCells2.rds"
+if(!exists("Stromal2.obj")){
+  Stromal2.obj <- readRDS(Stromal2.path)
+}
+
+
+new.cluster.ids <- c("JunkCells","EndothelialCells","ImmuneCells","JunkCellsOK","EndothelialCells","BasalCells","EndothelialCells","Fibroblasts","EndothelialCells","EndothelialCells","Pericytes","EndothelialCells","Fibroblasts")
+Idents(Stromal2.obj) <- "seurat_clusters"
+Stromal2.obj$round1.tier2 <- factor(Stromal2.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Stromal2.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateStromal2.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Stromal2.obj@meta.data$dvpmt.stage, Stromal2.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Stromal2.obj, file = Stromal2.path)
+```
+
+
+
+
+```{r Annotate VPL MammaryEpiCells}
+Mammary1.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells1.rds"
+if(!exists("Mammary1.obj")){
+  Mammary1.obj <- readRDS(Mammary1.path)
+}
+
+
+new.cluster.ids <- c("Bcells","BasalCells","JunkCells","JunkCells","JunkCells")
+Idents(Mammary1.obj) <- "seurat_clusters"
+Mammary1.obj$round1.tier2 <- factor(Mammary1.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary1.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary1.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary1.obj@meta.data$dvpmt.stage, Mammary1.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary1.obj, file = Mammary1.path)
+
+
+
+
+Mammary2.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells2.rds"
+if(!exists("Mammary2.obj")){
+  Mammary2.obj <- readRDS(Mammary2.path)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","BasalCells","JunkCellsOK","JunkCellsOK")
+Idents(Mammary2.obj) <- "seurat_clusters"
+Mammary2.obj$round1.tier2 <- factor(Mammary2.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary2.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary2.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary2.obj@meta.data$dvpmt.stage, Mammary2.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary2.obj, file = Mammary2.path)
+
+
+
+Mammary3.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells3.rds"
+if(!exists("Mammary3.obj")){
+  Mammary3.obj <- readRDS(Mammary3.path)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","JunkCells","JunkCellsOK","MammaryEpiCells","JunkCellsOK")
+Idents(Mammary3.obj) <- "seurat_clusters"
+Mammary3.obj$round1.tier2 <- factor(Mammary3.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary3.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary3.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary3.obj@meta.data$dvpmt.stage, Mammary3.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary3.obj, file = Mammary3.path)
+
+
+
+Mammary4.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells4.rds"
+if(!exists("Mammary4.obj")){
+  Mammary4.obj <- readRDS(Mammary4.path)
+}
+
+
+new.cluster.ids <- c("Fibroblasts","LuminalCells","JunkCellsOK","JunkCells","LuminalCells","LuminalCells")
+Idents(Mammary4.obj) <- "seurat_clusters"
+Mammary4.obj$round1.tier2 <- factor(Mammary4.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary4.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary4.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary4.obj@meta.data$dvpmt.stage, Mammary4.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary4.obj, file = Mammary4.path)
+
+
+
+Mammary5.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells5.rds"
+if(!exists("Mammary5.obj")){
+  Mammary5.obj <- readRDS(Mammary5.path)
+}
+
+
+new.cluster.ids <- c("JunkCellsOK","JunkCellsOK","LuminalCells","JunkCells","Fibroblasts")
+Idents(Mammary5.obj) <- "seurat_clusters"
+Mammary5.obj$round1.tier2 <- factor(Mammary5.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary5.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary5.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary5.obj@meta.data$dvpmt.stage, Mammary5.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary5.obj, file = Mammary5.path)
+
+
+
+Mammary6.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells6.rds"
+if(!exists("Mammary6.obj")){
+  Mammary6.obj <- readRDS(Mammary6.path)
+}
+
+
+new.cluster.ids <- c("BasalCells","StromalCells")
+Idents(Mammary6.obj) <- "seurat_clusters"
+Mammary6.obj$round1.tier2 <- factor(Mammary6.obj$seurat_clusters, labels = new.cluster.ids)
+p3junk<-DimPlot(Mammary6.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Roud1.tier2/AnnotateMammary6.pdf")
+p3junk
+dev.off()
+
+# Get the number of cells per sample in each cluster and print
+cell_counts <- table(Mammary6.obj@meta.data$dvpmt.stage, Mammary6.obj@meta.data$round1.tier2)
+print(cell_counts)
+saveRDS(Mammary6.obj, file = Mammary6.path)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r Merge all the objects together}
+JunkCells <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round1.tier2/VPL_STARsolo_Round1Tier2_JunkCells.rds"
+if(!exists("JunkCells.obj")){
+  JunkCells.obj <- readRDS(JunkCells)
+}
+
+Immune.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round1.tier2/VPL_STARsolo_Round1Tier2_ImmuneCells.rds"
+if(!exists("Immune.obj")){
+  Immune.obj <- readRDS(Immune.path)
+}
+
+MammaryEpi.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round1.tier2/VPL_STARsolo_Round1Tier2_MammaryEpiCells.rds"
+if(!exists("MammaryEpi.obj")){
+  MammaryEpi.obj <- readRDS(MammaryEpi.path)
+}
+
+Fibroblasts.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round1.tier2/VPL_STARsolo_Round1Tier2_StromalCells.rds"
+if(!exists("Fibroblasts.obj")){
+  Fibroblasts.obj <- readRDS(Fibroblasts.path)
+}
+
+VPL.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/VPLI_C57Bl6_15_29_26_lessmito300minfeatandUMI_optimized.rds_optimized.rds"
+
+if(!exists(" VPL.obj")){
+  VPL.obj <- readRDS(VPL.path)
+}
+
+# Do some contrived dataset manipulations to merge the different levels of metadata and keep cell ID's matched
+VPL.merged <- merge(x = JunkCells1.obj, y = c(Immune1.obj, Mammary1.obj, Stromal1.obj,JunkCells2.obj,JunkCells3.obj,Immune2.obj, Immune3.obj,Immune4.obj,Immune5.obj,Immune6.obj ,Stromal2.obj,Mammary2.obj, Mammary3.obj, Mammary4.obj, Mammary5.obj, Mammary6.obj)) 
+
+VPL.obj$round1.tier1.5 <- Idents(VPL.obj) ## had to create
+orig.tier1.5.df <- VPL.obj$round1.tier1.5 %>% data.frame() %>% rownames_to_column()
+merged.tier2.df <- VPL.merged$round1.tier2 %>% data.frame() %>% rownames_to_column()
+leftjoin.tier2.df <- left_join(orig.tier1.5.df, merged.tier2.df, by = "rowname")
+VPL.obj$round1.tier2 <- leftjoin.tier2.df$..y
+
+orig.tier1.5.df <- VPL.obj$round1.tier1.5 %>% data.frame() %>% rownames_to_column()
+#merged.tier2.5.df <- VPL.merged$round1.tier2.5 %>% data.frame() %>% rownames_to_column()
+#leftjoin.tier2.5.df <- left_join(orig.tier1.df, merged.tier2.5.df, by = "rowname")
+#VPL.obj$round1.tier2.5 <- leftjoin.tier2.5.df$..y
+
+#p1Merge<-DimPlot(VPL.obj, group.by = "round1.tier1", label = TRUE) + NoLegend()
+#p2Merge<-DimPlot(VPL.obj, group.by = "round1.tier1.5", label = TRUE) + NoLegend()
+#p3Merge<-DimPlot(VPL.obj, group.by = "round1.tier2", label = TRUE) + NoLegend()
+#p4Merge<-DimPlot(VPL.obj, group.by = "round1.tier2.5", label = TRUE) + NoLegend()
+
+#p5Merge<-DimPlot(VPL.obj[, VPL.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round1.tier2") + NoLegend()
+#p6Merge<-DimPlot(VPL.obj[, VPL.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident", cols = c('V1' = '#fea347', 'P2'='#fea380','P1' = '#2eb6ff','P2'= '#9eb6ff', 'N1' = '#681595', 'N2' = '#681550')) 
+
+#pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round1.tier2/plotMerge.pdf")
+#p1Merge
+#p2Merge
+#p3Merge
+#p5Merge
+#p6Merge
+#dev.off()
+
+```
+
+
+```{r Filter low quality clusters from VPL object, and repeat the cycle}
+# Filter low quality clusters from FNAB-only object, and repeat the cycle. By removing the low quality clusters and repeating, we can have cleaner clusterings/visualization, and better ability to distinguish refined subtypes (e.g., only selecting highly variable genes + having low quality cells present --> QC-related genes will be included in the chosen features --> clustering/visualization driven by QC, but not refined, nuanced subtypes/substates)
+VPL.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/VPL_C57Bl6_300minfeatandUMI_optimized.rds_optimized.rds"
+if(!exists("VPL.obj")){
+  VPL.obj <- readRDS(VPL.path)
+}
+
+#P1Ex<-DimPlot(VPL.obj, group.by = "round1.tier1", label = TRUE) + NoLegend()
+#P2Ex<-DimPlot(VPL.obj, group.by = "round1.tier1.5", label = TRUE) + NoLegend()
+# List the low quality clusters we want to exclude
+clusters.to.exclude <- c("JunkCells","JunkCells","JunkCells","JunkCells")
+VPL.obj <- VPL.obj[,!VPL.obj$round1.tier2 %in% clusters.to.exclude]
+#p4Ex<-DimPlot(VPL.obj[, VPL.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], group.by = "round1.tier2", label = TRUE) + NoLegend()
+#p5Ex<-DimPlot(VPL.obj[, VPL.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident", cols = c('V1' = '#fea347', 'V2'='#fea380','P1' = '#2eb6ff','P2'= '#9eb6ff', 'N1' = '#681595', 'N2' = '#681550')) 
+
+#pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/JunkCellsExclude.pdf")
+#P1Ex
+#P2Ex
+#p4Ex
+#p5Ex
+#dev.off()
+
+
+
+
+
+
+
+
+
+clusters.to.exclude <- c("JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells")
+VPL.obj <- VPL.obj[,!VPL.obj$round1.tier2 %in% clusters.to.exclude]
+figdir.cluster <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1"
+project.name <- "VPLI_C57Bl6_15_29_26_STARsolo_Round2Tier1"
+res.min = 0.2
+res.max = 1.2
+# Go through the cycle again of generating an optimized object with automated selection of number of principal components and clustering resolution
+VPL.round2.obj <- GenClustObj(VPL.obj, sample_name = project.name, figdir = figdir.cluster,
+                                rerun.SCT = TRUE, res.n = 20, res_min = res.min, res_max = res.max,
+                                vars.to.regress.genclust.in = c("percent.hb"), hush.in = FALSE,
+                                percent.patterns.to.set = c("^mt-", "^Rp", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                                percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                                phase.score = TRUE, s.genes.in = cc.genes.updated.2019$s.genes, g2m.genes.in = cc.genes.updated.2019$g2m.genes)
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+
+
+
+############ ARRET ICI !!!
+
+VPL.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPLI_C57Bl6_15_29_26_STARsolo_Round2Tier1_optimized.rds"
+if(!exists("VPL.round2.obj")){
+  VPL.round2.obj <- readRDS(VPL.path)
+}
+figdir.cluster<-"/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1"
+project.name <- "VPLI_C57Bl6_15_29_26_STARsolo_Round2Tier1"
+
+
+metadata.split <- c("Protocol", "dvpmt.stage")
+metadata.barstacks <- c(metadata.split)
+VPL.round2.obj <- celltypescoring.CT(filepath.in = VPL.round2.obj, markers = module.markers, figdir.in = figdir.cluster,
+                                       project.name.in = project.name, save.tiered.folder = FALSE, 
+                                       dimplot_split_in = metadata.split, barstacks_in = metadata.barstacks)
+
+VPL.round2.obj <- pathway.analysis.CT(folderpath.in = VPL.round2.obj,
+                                        figdir.in = figdir.cluster, marker.logfc.thresh = 0.5,
+                                        project.name.in = project.name, gsea.category = "C5", gsea.subcategory = "GO:BP", gsea.species = "Mus musculus",
+                                        run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE)
+DefaultAssay(VPL.round2.obj) <- "RNA"
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+#p1round2<-DimPlot(VPL.round2.obj [, VPL.round2.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], label = TRUE, group.by = "round1.tier2") + NoLegend()
+#p2round2<-DimPlot(VPL.round2.obj[, VPL.round2.obj$orig.ident %in% c("V1", "V2", "P1", "P2","N1","N2")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident", cols = c('V1' = '#fea347', 'V2'='#fea380','P1' = '#2eb6ff','P2'= '#9eb6ff', 'N1' = '#681595', 'N2' = '#681550')) 
+#VlnPlot(VPL.round2.obj, group.by = "round1.tier2", features = "Cdh1", pt.size = 0) + NoLegend()
+
+#pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/Round2Tier1/DimplotRound2tier1.pdf")
+#p1round2
+#p2round2
+#dev.off()
+
+```
+
+
+
+```{r Annotate VPL object cleaned}
+
+if(!exists("STARsolo.VPL.obj")){
+  STARsolo.optimal.obj <- readRDS("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPLI_C57Bl6_15_29_26_STARsolo_Round2Tier1_optimized.rds")
+}
+
+new.cluster.ids <- c("Fibroblasts","BasalCells","LuminalCells", "Tcells", "Bcells","Macrophages","MammaryEpiCells","LuminalCells","JunkCells","EndothelialCells", "Bcells","JunkCells","LuminalCells","EndothelialCells")
+Idents(STARsolo.optimal.obj) <- "seurat_clusters"
+STARsolo.optimal.obj$round2.tier1 <- factor(STARsolo.optimal.obj$seurat_clusters, labels = new.cluster.ids)
+STARsolo.optimal.obj$round2.tier1 <- factor(STARsolo.optimal.obj$seurat_clusters, labels = new.cluster.ids) #had to add this line otherwise round1.tier1 was not in the metadata of VPL.starsolo, is it because saveRDS is after round1.tier1.5 ?
+#p1tier2<-DimPlot(STARsolo.VPL.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+#p2tier2<-DimPlot(STARsolo.VPL.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident", cols = c('V1' = '#fea347', 'V2'='#fea380','P1' = '#2eb6ff','P2'= '#9eb6ff', 'N1' = '#681595', 'N2' = '#681550')) 
+#pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/Round2Tier1/umap.pdf")
+#p1tier2
+#p2tier2
+#dev.off()
+
+
+
+### divide in 3 main groups : stromal, epithelial and immune cells
+new.cluster.ids <- c("MammaryEpiCells1", "MammaryEpiCells2", "MammaryEpiCells3", "MammaryEpiCells4", "ImmuneCells1", "Fibroblasts1","ImmuneCells2", "ImmuneCells3", "EndothelialCells1")
+Idents(STARsolo.VPL.obj) <- "seurat_clusters"
+STARsolo.VPL.obj$round2.tier1.5 <- factor(STARsolo.VPL.obj$seurat_clusters, labels = new.cluster.ids)
+p1tier2.5<-DimPlot(STARsolo.VPL.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1.5") + NoLegend()
+p2tier2.5<-DimPlot(STARsolo.VPL.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident", cols = c('V1' = '#fea347', 'V2'='#fea380','P1' = '#2eb6ff','P2'= '#9eb6ff', 'N1' = '#681595', 'N2' = '#681550')) 
+
+pdf(file ="/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/Round2Tier1/umap2.5.pdf" )
+p1tier2.5
+p2tier2.5
+dev.off()
+
+saveRDS(STARsolo.VPL.obj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/Round2Tier1/VPL_STARsolo_Round2Tier1_optimized.rds")
+
+```
+
+
+
+
+```{r Subcluster VPL object cleaned}
+# Split the object by cell type, and re-cluster each cell type on its own to identify more refined subpopulations
+#VPL.starsolo.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/Seqwell_Jen_29022024/2_STARsolo_Clustering/Round2Tier1/#VPL_STARsolo_Round2Tier1_optimized.rds"
+#if(!exists("STARsolo.optimal.obj")){STARsolo.optimal.obj <- readRDS(VPL.starsolo.path)} 
+
+
+col.clusters <- list("Fibroblasts","BasalCells","LuminalCells", "Tcells", "Bcells","Macrophages","MammaryEpiCells","JunkCells","EndothelialCells")
+col.labels <- list("Fibroblasts","BasalCells","LuminalCells", "Tcells", "Bcells","Macrophages","MammaryEpiCells","JunkCells","EndothelialCells")
+
+dimplot.split.iter = c("Protocol", "dvpmt.stage")
+barstacks.list <- c(dimplot.split.iter)
+
+for(jj in 1:length(col.clusters)){
+  clusters.jj <- col.clusters[[jj]]
+  labels.jj <- col.labels[[jj]]
+  print(paste0("Starting on cluster ", labels.jj, " at ", Sys.time(), ". This is cluster ", jj, " of ", length(col.labels)))
+  obj.jj <- STARsolo.optimal.obj[,STARsolo.optimal.obj$round2.tier1 %in% clusters.jj]
+  categ.metadata <- c(barstacks.list, "seurat_clusters")
+  figdir.cluster.jj <- paste0("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/")
+  project.name.jj <- paste0("VPL_STARsolo_Round2Tier1_", labels.jj)
+  seurat.subset.path.jj <- paste0(figdir.cluster.jj, "/", project.name.jj, ".rds")
+  
+  obj.jj <- GenClustObj(obj.jj,
+                        res_min = 0.2, res_max = 1.2, res.n = 20,
+                        percent.patterns.to.set = c("^mt-", "^Rpl|^Rpp|^Rps", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                        percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                        phase.score = FALSE, s.genes.in = cc.genes$s.genes, g2m.genes.in = cc.genes$g2m.genes,
+                        sample_name = project.name.jj, figdir = figdir.cluster.jj,
+                        vars.to.regress.genclust.in = NULL, hush.in = FALSE) ## had to put hush.in = FALSE instead of TRUE ###
+  
+  obj.jj <- celltypescoring.CT(filepath.in = obj.jj, markers = module.markers, figdir.in = figdir.cluster.jj,
+                               project.name.in = project.name.jj, save.tiered.folder = FALSE,
+                               dimplot_split_in = dimplot.split.iter, barstacks_in = barstacks.list)
+  
+  ### PCA.corr.plot.CT(seurat.bigboi = obj.jj, PCs.in = obj.jj@misc$nPCs,
+                 #  quant.metadata.in = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+                 #  categ.metadata.in = categ.metadata,
+                  # figdir = figdir.cluster.jj,
+                   #sample_name = project.name.jj)             not working
+  
+  obj.jj <- pathway.analysis.CT(folderpath.in = obj.jj,
+                                figdir.in = figdir.cluster.jj, marker.logfc.thresh = 0.75,
+                                run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE,
+                                project.name.in = project.name.jj, gsea.category = "H", gsea.subcategory = NA, gsea.species = "Mus musculus") #gsea.category = "H" is for hallmark gene set
+  
+  saveRDS(obj.jj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/STARsolo.optimal.obj.rds")
+  
+}
+
+```
+
+
+```{r Annotate VPL  Basal Cells, Luminal Cells, Fibroblasts}
+# Examine and annotate each cell type-specific object
+Basal.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_BasalCells.rds"
+if(!exists("Basal.obj")){
+  Basal.obj <- readRDS(Basal.path)
+}
+
+####
+
+new.cluster.ids <- c("BasalCells","BasalCells","BasalCells","LuminalCells","StromalCells","JunkCells")
+Idents(Basal.obj) <- "seurat_clusters"
+Basal.obj$round2.tier1 <- factor(Basal.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Basal.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Basal.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotBasal.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Basal.obj, file = Basal.path)
+cell_counts <- table(Basal.obj@meta.data$dvpmt.stage, Basal.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+#######
+Luminal.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_LuminalCells.rds"
+if(!exists("Luminal.obj")){
+  Luminal.obj <- readRDS(Luminal.path)
+}
+
+####
+
+new.cluster.ids <- c("Bcells","StromalCells","LuminalCells","LuminalCells")
+Idents(Luminal.obj) <- "seurat_clusters"
+Luminal.obj$round2.tier1 <- factor(Luminal.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Luminal.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Luminal.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotLuminal.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Luminal.obj, file = Luminal.path)
+cell_counts <- table(Luminal.obj@meta.data$dvpmt.stage, Luminal.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+########
+Fibroblasts.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Fibroblasts.rds"
+if(!exists("Fibroblasts.obj")){
+  Fibroblasts.obj <- readRDS(Fibroblasts.path)
+}
+
+####
+
+new.cluster.ids <- c("Fibroblasts","Fibroblasts","Fibroblasts","Fibroblasts","EndothelialCells","Fibroblasts","ImmuneCells","Fibroblasts","JunkCells","BasalCells","Fibroblasts")
+Idents(Fibroblasts.obj) <- "seurat_clusters"
+Fibroblasts.obj$round2.tier1 <- factor(Fibroblasts.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Fibroblasts.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Fibroblasts.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotFibroblasts.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Fibroblasts.obj, file = Fibroblasts.path)
+cell_counts <- table(Fibroblasts.obj@meta.data$dvpmt.stage, Fibroblasts.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+#######
+Mammary.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_MammaryEpiCells.rds"
+if(!exists("Mammary.obj")){
+  Mammary.obj <- readRDS(Mammary.path)
+}
+
+####
+
+new.cluster.ids <- c("BasalCells","BasalCells","LuminalCells","LuminalCells","JunkCells")
+Idents(Mammary.obj) <- "seurat_clusters"
+Mammary.obj$round2.tier1 <- factor(Mammary.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Mammary.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Mammary.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotMammary.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Mammary.obj, file = Mammary.path)
+cell_counts <- table(Mammary.obj@meta.data$dvpmt.stage, Mammary.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+#######
+Bcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Bcells.rds"
+if(!exists("Bcells.obj")){
+  Bcells.obj <- readRDS(Bcells.path)
+}
+
+####
+
+new.cluster.ids <- c("Bcells","Bcells","Fibroblasts","Bcells","MammaryEpiCells","Fibroblasts")
+Idents(Bcells.obj) <- "seurat_clusters"
+Bcells.obj$round2.tier1 <- factor(Bcells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Bcells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Bcells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotBcells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Bcells.obj, file = Bcells.path)
+cell_counts <- table(Bcells.obj@meta.data$dvpmt.stage, Bcells.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+#######
+Tcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Tcells.rds"
+if(!exists("Tcells.obj")){
+  Tcells.obj <- readRDS(Tcells.path)
+}
+
+####
+
+new.cluster.ids <- c("Tcells","Tcells","Tcells","Tcells","Tcells","MammaryEpiCells","Tcells","JunkCells","Tcells","JunkCells","DendriticCells","ImmuneCells")
+Idents(Tcells.obj) <- "seurat_clusters"
+Tcells.obj$round2.tier1 <- factor(Tcells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Tcells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Tcells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotTcells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Tcells.obj, file = Tcells.path)
+cell_counts <- table(Tcells.obj@meta.data$dvpmt.stage, Tcells.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+#######
+JunkCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_JunkCells.rds"
+if(!exists("JunkCells.obj")){
+  JunkCells.obj <- readRDS(JunkCells.path)
+}
+
+####
+
+new.cluster.ids <- c("JunkCells","BasalCells","Tcells","JunkCells","Fibroblasts","JunkCells","Macrophages")
+Idents(JunkCells.obj) <- "seurat_clusters"
+JunkCells.obj$round2.tier1 <- factor(JunkCells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(JunkCells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(JunkCells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotJunkCells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(JunkCells.obj, file = JunkCells.path)
+cell_counts <- table(JunkCells.obj@meta.data$dvpmt.stage, JunkCells.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+#######
+EndothelialCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_EndothelialCells.rds"
+if(!exists("EndothelialCells.obj")){
+  EndothelialCells.obj <- readRDS(EndothelialCells.path)
+}
+
+####
+
+new.cluster.ids <- c("Fibroblasts","LuminalCells","EndothelialCells","EndothelialCells","EndothelialCells","EndothelialCells","Tcells","Fibroblasts","BasalCells","Bcells","EndothelialCells","LuminalCells","EndothelialCells","EndothelialCells")
+Idents(EndothelialCells.obj) <- "seurat_clusters"
+EndothelialCells.obj$round2.tier1 <- factor(EndothelialCells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(EndothelialCells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(EndothelialCells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotEndothelialCells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(EndothelialCells.obj, file = EndothelialCells.path)
+cell_counts <- table(EndothelialCells.obj@meta.data$dvpmt.stage, EndothelialCells.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+
+
+
+#######
+Macrophages.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Macrophages.rds"
+if(!exists("Macrophages.obj")){
+  Macrophages.obj <- readRDS(Macrophages.path)
+}
+
+####
+
+new.cluster.ids <- c("DendriticCells","Monocytes","DendriticCells","Macrophages","ImmuneCells","Fibroblasts","JunkCells","Macrophages","Monocytes","Bcells","MammaryEpiCells","DendriticCells","Macrophages","Monocytes")
+Idents(Macrophages.obj) <- "seurat_clusters"
+Macrophages.obj$round2.tier1 <- factor(Macrophages.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Macrophages.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p2Fibro<-DimPlot(Macrophages.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage") 
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/AnnotMacrophages.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Macrophages.obj, file = Macrophages.path)
+cell_counts <- table(Macrophages.obj@meta.data$dvpmt.stage, Macrophages.obj@meta.data$round2.tier1)
+print(cell_counts)
+
+```
+
+
+
+
+```{r Merge all the objects together}
+
+Macrophages.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Macrophages.rds"
+if(!exists("Macrophages.obj")){
+  Macrophages.obj <- readRDS(Macrophages.path)
+}
+EndothelialCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_EndothelialCells.rds"
+if(!exists("EndothelialCells.obj")){
+  EndothelialCells.obj <- readRDS(EndothelialCells.path)
+}
+JunkCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_JunkCells.rds"
+if(!exists("JunkCells.obj")){
+  JunkCells.obj <- readRDS(JunkCells.path)
+}
+Tcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Tcells.rds"
+if(!exists("Tcells.obj")){
+  Tcells.obj <- readRDS(Tcells.path)
+}
+Bcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Bcells.rds"
+if(!exists("Bcells.obj")){
+  Bcells.obj <- readRDS(Bcells.path)
+}
+Mammary.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_MammaryEpiCells.rds"
+if(!exists("Mammary.obj")){
+  Mammary.obj <- readRDS(Mammary.path)
+}
+Fibroblasts.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_Fibroblasts.rds"
+if(!exists("Fibroblasts.obj")){
+  Fibroblasts.obj <- readRDS(Fibroblasts.path)
+}
+Luminal.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_LuminalCells.rds"
+if(!exists("Luminal.obj")){
+  Luminal.obj <- readRDS(Luminal.path)
+}
+Basal.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPL_STARsolo_Round2Tier1_BasalCells.rds"
+if(!exists("Basal.obj")){
+  Basal.obj <- readRDS(Basal.path)
+}
+
+VPL.starsolo.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/VPLI_C57Bl6_15_29_26_STARsolo_Round2Tier1_optimized.rds"
+if(!exists("STARsolo.optimal.obj"))
+  {STARsolo.optimal.obj <- readRDS(VPL.starsolo.path)} 
+
+# Do some contrived dataset manipulations to merge the different levels of metadata and keep cell ID's matched
+VPL.merged <- merge(x = Mammary.obj, y = c(Fibroblasts.obj, Tcells.obj, Basal.obj, Luminal.obj, Bcells.obj, Macrophages.obj, EndothelialCells.obj, JunkCells.obj)) 
+
+STARsolo.optimal.obj$round3.tier1 <- Idents(STARsolo.optimal.obj) ## had to create
+orig.tier2.df <- STARsolo.optimal.obj$round2.tier1 %>% data.frame() %>% rownames_to_column()
+merged.tier2.df <- VPL.merged$round2.tier1 %>% data.frame() %>% rownames_to_column()
+leftjoin.tier2.df <- left_join(orig.tier2.df, merged.tier2.df, by = "rowname")
+STARsolo.optimal.obj$round2.tier1 <- leftjoin.tier2.df$..y
+orig.tier2.df <- STARsolo.optimal.obj$round2.tier1 %>% data.frame() %>% rownames_to_column()
+
+
+p1Merge<-DimPlot(STARsolo.optimal.obj, group.by = "round3.tier1", label = TRUE) + NoLegend()
+p2Merge<-DimPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p3Merge<-DimPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595')) 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round2.tier1/umapRound2.1.pdf")
+p1Merge
+p2Merge
+p3Merge
+dev.off()
+
+
+
+```
+
+
+
+```{r Filter low quality clusters from VPL object, and repeat the cycle}
+# Filter low quality clusters from FNAB-only object, and repeat the cycle. By removing the low quality clusters and repeating, we can have cleaner clusterings/visualization, and better ability to distinguish refined subtypes (e.g., only selecting highly variable genes + having low quality cells present --> QC-related genes will be included in the chosen features --> clustering/visualization driven by QC, but not refined, nuanced subtypes/substates)
+
+
+P1Ex<-DimPlot(STARsolo.optimal.obj, group.by = "round2.tier1", label = TRUE) + NoLegend()
+clusters.to.exclude <- c("JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells","JunkCells")
+STARsolo.optimal.obj <- STARsolo.optimal.obj[,!STARsolo.optimal.obj$round2.tier1 %in% clusters.to.exclude]
+p4Ex<-DimPlot(STARsolo.optimal.obj[, STARsolo.optimal.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], group.by = "round3.tier1", label = TRUE) + NoLegend()
+p5Ex<-DimPlot(STARsolo.optimal.obj[, obj.jj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595'))  
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round2.tier1/JunkCellsExclude2.pdf")
+P1Ex
+p4Ex
+p5Ex
+dev.off()
+
+
+
+
+figdir.cluster <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1"
+project.name <- "VPLI_152926_STARsolo_Round3Tier1"
+res.min = 0.2
+res.max = 1.2
+# Go through the cycle again of generating an optimized object with automated selection of number of principal components and clustering resolution
+VPL.round2.obj <- GenClustObj(STARsolo.optimal.obj, sample_name = project.name, figdir = figdir.cluster,
+                                rerun.SCT = TRUE, res.n = 20, res_min = res.min, res_max = res.max,
+                                vars.to.regress.genclust.in = c("percent.hb"), hush.in = FALSE,
+                                percent.patterns.to.set = c("^mt-", "^Rp", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                                percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                                phase.score = TRUE, s.genes.in = cc.genes.updated.2019$s.genes, g2m.genes.in = cc.genes.updated.2019$g2m.genes)
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+metadata.split <- c("Protocol", "dvpmt.stage")
+metadata.barstacks <- c(metadata.split)
+VPL.round2.obj <- celltypescoring.CT(filepath.in = VPL.round2.obj, markers = module.markers, figdir.in = figdir.cluster,
+                                       project.name.in = project.name, save.tiered.folder = FALSE, 
+                                       dimplot_split_in = metadata.split, barstacks_in = metadata.barstacks)
+
+VPL.round2.obj <- pathway.analysis.CT(folderpath.in = VPL.round2.obj,
+                                        figdir.in = figdir.cluster, marker.logfc.thresh = 0.75,
+                                        project.name.in = project.name, gsea.category = "C5", gsea.subcategory = "GO:BP", gsea.species = "Mus musculus",
+                                        run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE)
+DefaultAssay(VPL.round2.obj) <- "RNA"
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+p1round2<-DimPlot(VPL.round2.obj [, VPL.round2.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], label = TRUE, group.by = "round3.tier1") + NoLegend()
+p2round2<-DimPlot(VPL.round2.obj[, VPL.round2.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595')) 
+VlnPlot(VPL.round2.obj, group.by = "round3.tier1", features = "Cdh1", pt.size = 0) + NoLegend()
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26/Round3.tier1/DimplotRound3tier1.pdf")
+p1round2
+p2round2
+dev.off()
+
+```
+
+
+```{r Annotate VPL object cleaned}
+
+if(!exists("VPL.round2.objj")){
+  VPL.round2.objj <- readRDS("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPLI_152926_STARsolo_Round3Tier1_optimized.rds")
+}
+
+new.cluster.ids <- c("Fibroblasts","BasalCells","LuminalCells","Bcells","Tcells","Macrophages","LuminalCells","LuminalCells","Neuron","EndothelialCells","Bcells","LuminalCells","EndothelialCells")
+Idents(VPL.round2.objj) <- "seurat_clusters"
+VPL.round2.objj$round3.tier1 <- factor(VPL.round2.objj$seurat_clusters, labels = new.cluster.ids)
+VPL.round2.objj$round3.tier1 <- factor(VPL.round2.objj$seurat_clusters, labels = new.cluster.ids)
+saveRDS(VPL.round2.objj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPLI_152926_objet_Round3.tier1.rds")
+
+
+if(!exists("VPL.round2.obj")){
+VPL.round2.obj <- readRDS("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPLI_152926_STARsolo_Round3Tier1_optimized.rds")
+}
+clusters.to.exclude <- "8"
+VPL.round2.obj <- VPL.round2.obj[,!VPL.round2.obj$round3.tier1 %in% 8]
+p4Ex<-DimPlot(VPL.round2.obj[, VPL.round2.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], group.by = "round3.tier1", label = TRUE) + NoLegend()
+p5Ex<-DimPlot(VPL.round2.obj[, VPL.round2.obj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595'))  
+saveRDS(VPL.round2.obj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPLI_152926_STARsolo_Round3Tier1_WithoutNeuron.rds")
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/umapwithoutneuron.pdf")
+p4Ex
+p5Ex
+dev.off()
+
+
+figdir.cluster <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round4.tier1"
+project.name <- "VPLI_152926_STARsolo_Round4Tier1"
+res.min = 0.2
+res.max = 1.2
+# Go through the cycle again of generating an optimized object with automated selection of number of principal components and clustering resolution
+VPL.round2.obj <- GenClustObj(VPL.round2.obj, sample_name = project.name, figdir = figdir.cluster,
+                                rerun.SCT = TRUE, res.n = 20, res_min = res.min, res_max = res.max,
+                                vars.to.regress.genclust.in = c("percent.hb"), hush.in = FALSE,
+                                percent.patterns.to.set = c("^mt-", "^Rp", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                                percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                                phase.score = TRUE, s.genes.in = cc.genes.updated.2019$s.genes, g2m.genes.in = cc.genes.updated.2019$g2m.genes)
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+metadata.split <- c("Protocol", "dvpmt.stage")
+metadata.barstacks <- c(metadata.split)
+VPL.round2.obj <- celltypescoring.CT(filepath.in = VPL.round2.obj, markers = module.markers, figdir.in = figdir.cluster,
+                                       project.name.in = project.name, save.tiered.folder = FALSE, 
+                                       dimplot_split_in = metadata.split, barstacks_in = metadata.barstacks)
+
+VPL.round2.obj <- pathway.analysis.CT(folderpath.in = VPL.round2.obj,
+                                        figdir.in = figdir.cluster, marker.logfc.thresh = 0.75,
+                                        project.name.in = project.name, gsea.category = "C5", gsea.subcategory = "GO:BP", gsea.species = "Mus musculus",
+                                        run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE)
+DefaultAssay(VPL.round2.obj) <- "RNA"
+saveRDS(VPL.round2.obj, file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/Objet_152926.rds")
+
+
+
+
+
+
+
+
+
+
+
+#had to add this line otherwise round1.tier1 was not in the metadata of VPL.starsolo, is it because saveRDS is after round1.tier1.5 ?
+p1tier2<-DimPlot(VPL.round2.objj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2tier2<-DimPlot(VPL.round2.objj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#FFF715', 'Virgin'='#0CED14','Pregnant' = '#2eb6ff','Lactation' = '#FF3415')) 
+
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/umap.pdf")
+p1tier2
+p2tier2
+dev.off()
+
+```
+
+
+```{r Subcluster VPL object cleaned}
+# Split the object by cell type, and re-cluster each cell type on its own to identify more refined subpopulations
+
+col.clusters <- list("Fibroblasts","BasalCells","LuminalCells","Bcells","Tcells","Macrophages","Neuron","EndothelialCells")
+col.labels <- list("Fibroblasts","BasalCells","LuminalCells","Bcells","Tcells","Macrophages","Neuron","EndothelialCells")
+
+dimplot.split.iter = c("Protocol", "dvpmt.stage")
+barstacks.list <- c(dimplot.split.iter)
+
+for(jj in 1:length(col.clusters)){
+  clusters.jj <- col.clusters[[jj]]
+  labels.jj <- col.labels[[jj]]
+  print(paste0("Starting on cluster ", labels.jj, " at ", Sys.time(), ". This is cluster ", jj, " of ", length(col.labels)))
+  obj.jj <- VPL.round2.obj[,VPL.round2.obj$round3.tier1 %in% clusters.jj]
+  categ.metadata <- c(barstacks.list, "seurat_clusters")
+  figdir.cluster.jj <- paste0("/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1")
+  project.name.jj <- paste0("VPL_STARsolo_Round3Tier1_", labels.jj)
+  seurat.subset.path.jj <- paste0(figdir.cluster.jj, "/", project.name.jj, ".rds")
+  
+  obj.jj <- GenClustObj(obj.jj,
+                        res_min = 0.2, res_max = 1.2, res.n = 20,
+                        percent.patterns.to.set = c("^mt-", "^Rpl|^Rpp|^Rps", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                        percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                        phase.score = FALSE, s.genes.in = cc.genes$s.genes, g2m.genes.in = cc.genes$g2m.genes,
+                        sample_name = project.name.jj, figdir = figdir.cluster.jj,
+                        vars.to.regress.genclust.in = NULL, hush.in = FALSE) ## had to put hush.in = FALSE instead of TRUE ###
+  
+  obj.jj <- celltypescoring.CT(filepath.in = obj.jj, markers = module.markers, figdir.in = figdir.cluster.jj,
+                               project.name.in = project.name.jj, save.tiered.folder = FALSE,
+                               dimplot_split_in = dimplot.split.iter, barstacks_in = barstacks.list)
+  
+  ### PCA.corr.plot.CT(seurat.bigboi = obj.jj, PCs.in = obj.jj@misc$nPCs,
+                 #  quant.metadata.in = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+                 #  categ.metadata.in = categ.metadata,
+                  # figdir = figdir.cluster.jj,
+                   #sample_name = project.name.jj)             not working
+  
+  obj.jj <- pathway.analysis.CT(folderpath.in = obj.jj,
+                                figdir.in = figdir.cluster.jj, marker.logfc.thresh = 0.75,
+                                run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE,
+                                project.name.in = project.name.jj, gsea.category = "H", gsea.subcategory = NA, gsea.species = "Mus musculus") #gsea.category = "H" is for hallmark gene set
+  
+  saveRDS(obj.jj, file = seurat.subset.path.jj)
+  
+}
+
+```
+
+
+
+```{r Annotate VPL  Fibroblasts Cells}
+# Examine and annotate each cell type-specific object
+Fibroblasts.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_Fibroblasts.rds"
+if(!exists("Fibroblasts.obj")){
+  Fibroblasts.obj <- readRDS(Fibroblasts.path)
+}
+
+new.cluster.ids <- c("Fibroblasts","Fibroblasts","Tcells","Fibroblasts","Fibroblasts","Fibroblasts","Fibroblasts","Macrophage","Fibroblasts","Fibroblasts","BasalCells")
+Idents(Fibroblasts.obj) <- "seurat_clusters"
+Fibroblasts.obj$round3.tier1 <- factor(Fibroblasts.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Fibroblasts.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(Fibroblasts.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotFibro.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Fibroblasts.obj, file = Fibroblasts.path)
+cell_counts <- table(Fibroblasts.obj@meta.data$dvpmt.stage, Fibroblasts.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+########
+
+Bcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_Bcells.rds"
+if(!exists("Bcells.obj")){
+  Bcells.obj <- readRDS(Bcells.path)
+}
+
+new.cluster.ids <- c("Bcells","Bcells","Fibroblasts","Bcels","LuminalCells","Fibroblasts")
+Idents(Bcells.obj) <- "seurat_clusters"
+Bcells.obj$round3.tier1 <- factor(Bcells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Bcells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(Bcells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotBcells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Bcells.obj, file = Bcells.path)
+cell_counts <- table(Bcells.obj@meta.data$dvpmt.stage, Bcells.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+
+#######
+LuminalCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_LuminalCells.rds"
+if(!exists("LuminalCells.obj")){
+  LuminalCells.obj <- readRDS(LuminalCells.path)
+}
+
+new.cluster.ids <- c("Bcells","LuminalCells","LuminalCells","LuminalCells","BasalCells","LuminalCells","Fibroblasts")
+Idents(LuminalCells.obj) <- "seurat_clusters"
+LuminalCells.obj$round3.tier1 <- factor(LuminalCells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(LuminalCells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(LuminalCells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotLuminalCells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(LuminalCells.obj, file = LuminalCells.path)
+cell_counts <- table(LuminalCells.obj@meta.data$dvpmt.stage, LuminalCells.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+########
+
+Neuron.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_Neuron.rds"
+if(!exists("Neuron.obj")){
+  Neuron.obj <- readRDS(Neuron.path)
+}
+
+new.cluster.ids <- c("Neuron","Neuron","Fibroblasts","Tcells","Macrophages")
+Idents(Neuron.obj) <- "seurat_clusters"
+Neuron.obj$round3.tier1 <- factor(Neuron.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Neuron.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(Neuron.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotNeuron.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Neuron.obj, file = Neuron.path)
+cell_counts <- table(Neuron.obj@meta.data$dvpmt.stage, Neuron.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+#######
+Macrophages.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_Macrophages.rds"
+if(!exists("Macrophages.obj")){
+  Macrophages.obj <- readRDS(Macrophages.path)
+}
+
+new.cluster.ids <- c("DendriticCells","Neuron","Monocytes","Macrophages","DendriticCells","Macrophages","Tcells","Monocytes","DendriticCells","Neuron")
+Idents(Macrophages.obj) <- "seurat_clusters"
+Macrophages.obj$round3.tier1 <- factor(Macrophages.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Macrophages.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(Macrophages.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotMacrophages.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Macrophages.obj, file = Macrophages.path)
+cell_counts <- table(Macrophages.obj@meta.data$dvpmt.stage, Macrophages.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+#########
+EndothelialCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_EndothelialCells.rds"
+if(!exists("EndothelialCells.obj")){
+  EndothelialCells.obj <- readRDS(EndothelialCells.path)
+}
+
+new.cluster.ids <- c("Fibroblasts","EndothelialCells","Fibroblasts","BasalCells","EndothelialCells","EndothelialCells","Tcells","Bcells", "LuminalCells","EndothelialCells","EndothelialCells","EndothelialCells","EndothelialCells","Fibroblasts")
+Idents(EndothelialCells.obj) <- "seurat_clusters"
+EndothelialCells.obj$round3.tier1 <- factor(EndothelialCells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(EndothelialCells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(EndothelialCells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotEndothelialCells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(EndothelialCells.obj, file = EndothelialCells.path)
+cell_counts <- table(EndothelialCells.obj@meta.data$dvpmt.stage, EndothelialCells.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+######
+Tcells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_Tcells.rds"
+if(!exists("Tcells.obj")){
+  Tcells.obj <- readRDS(Tcells.path)
+}
+
+new.cluster.ids <- c("Tcells","Tcells","Tcells","Tcells","Tcells","BasalCells","DendriticCells","MastCells")
+Idents(Tcells.obj) <- "seurat_clusters"
+Tcells.obj$round3.tier1 <- factor(Tcells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(Tcells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(Tcells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotTcells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(Tcells.obj, file = Tcells.path)
+cell_counts <- table(Tcells.obj@meta.data$dvpmt.stage, Tcells.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+#######
+BasalCells.path <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/VPL_STARsolo_Round3Tier1_BasalCells.rds"
+if(!exists("BasalCells.obj")){
+  BasalCells.obj <- readRDS(BasalCells.path)
+}
+
+new.cluster.ids <- c("Neuron","BasalCells","BasalCells","BasalCells","BasalCells","BasalCells","Tcells", "LuminalCells","Bcells","BasalCells","BasalCells","Neuron","BasalCells")
+Idents(BasalCells.obj) <- "seurat_clusters"
+BasalCells.obj$round3.tier1 <- factor(BasalCells.obj$seurat_clusters, labels = new.cluster.ids)
+p1Fibro<-DimPlot(BasalCells.obj, reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round3.tier1") + NoLegend()
+p2Fibro<-DimPlot(BasalCells.obj, reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "orig.ident") 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/AnnotBasalCells.pdf")
+p1Fibro
+p2Fibro
+dev.off()
+
+saveRDS(BasalCells.obj, file = BasalCells.path)
+cell_counts <- table(BasalCells.obj@meta.data$dvpmt.stage, BasalCells.obj@meta.data$round3.tier1)
+print(cell_counts)
+
+
+
+
+
+
+```
+
+
+```{r Merge all the objects together}
+
+
+VPL.merged <- merge(x = Macrophages.obj, y = c(Fibroblasts.obj, Tcells.obj, BasalCells.obj, LuminalCells.obj, Bcells.obj, Neuron.obj, EndothelialCells.obj)) 
+
+obj.jj$round3.tier1 <- Idents(obj.jj) ## had to create
+orig.tier2.df <- obj.jj$round2.tier1 %>% data.frame() %>% rownames_to_column()
+merged.tier2.df <- VPL.merged$round2.tier1 %>% data.frame() %>% rownames_to_column()
+leftjoin.tier2.df <- left_join(orig.tier2.df, merged.tier2.df, by = "rowname")
+obj.jj$round2.tier1 <- leftjoin.tier2.df$..y
+orig.tier2.df <- obj.jj$round2.tier1 %>% data.frame() %>% rownames_to_column()
+
+
+p1Merge<-DimPlot(obj.jj, group.by = "round3.tier1", label = TRUE) + NoLegend()
+p2Merge<-DimPlot(obj.jj[, obj.jj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = TRUE, pt.size = 0.5, group.by = "round2.tier1") + NoLegend()
+p3Merge<-DimPlot(obj.jj[, obj.jj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595')) 
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/umapRound3.1.pdf")
+p1Merge
+p2Merge
+p3Merge
+dev.off()
+
+
+
+```
+
+
+
+```{r Filter low quality clusters from VPL object, and repeat the cycle}
+# Filter low quality clusters from FNAB-only object, and repeat the cycle. By removing the low quality clusters and repeating, we can have cleaner clusterings/visualization, and better ability to distinguish refined subtypes (e.g., only selecting highly variable genes + having low quality cells present --> QC-related genes will be included in the chosen features --> clustering/visualization driven by QC, but not refined, nuanced subtypes/substates)
+
+
+P1Ex<-DimPlot(obj.jj, group.by = "round3.tier1", label = TRUE) + NoLegend()
+clusters.to.exclude <- c("Neuron","Neuron","Neuron","Neuron","Neuron","Neuron","Neuron","Neuron","Neuron")
+obj.jj <- obj.jj[,!obj.jj$round3.tier1 %in% clusters.to.exclude]
+p4Ex<-DimPlot(obj.jj[, obj.jj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], group.by = "round3.tier1", label = TRUE) + NoLegend()
+p5Ex<-DimPlot(obj.jj[, obj.jj$dvpmt.stage %in% c("Involution","Virgin","Pregnant","Lactation")], reduction = "umap", label = FALSE, pt.size = 0.5, group.by = "dvpmt.stage", cols = c('Involution' = '#fea347', 'Lactation'='#fea380','Virgin' = '#2eb6ff', 'Pregnant' = '#681595'))  
+
+pdf(file = "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round3.tier1/NeuronExclude2.pdf")
+P1Ex
+p4Ex
+p5Ex
+dev.off()
+
+
+
+
+figdir.cluster <- "/LAB-DATA/BiRD/shares/CRCINA/E08_Projet_SingleCell/Seqwell/merged15_29_26_v2/Round4.tier1"
+project.name <- "VPLI_152926_STARsolo_Round4Tier1"
+res.min = 0.2
+res.max = 1.2
+# Go through the cycle again of generating an optimized object with automated selection of number of principal components and clustering resolution
+VPL.round2.obj <- GenClustObj(obj.jj, sample_name = project.name, figdir = figdir.cluster,
+                                rerun.SCT = TRUE, res.n = 20, res_min = res.min, res_max = res.max,
+                                vars.to.regress.genclust.in = c("percent.hb"), hush.in = FALSE,
+                                percent.patterns.to.set = c("^mt-", "^Rp", "^Hba1|^Hba2|^Hbb|^Hbd|^Hbg1|^Hbg2|^Hbm"), 
+                                percent.features.names = c("percent.mt", "percent.ribo", "percent.hb"),
+                                phase.score = TRUE, s.genes.in = cc.genes.updated.2019$s.genes, g2m.genes.in = cc.genes.updated.2019$g2m.genes)
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+metadata.split <- c("Protocol", "dvpmt.stage")
+metadata.barstacks <- c(metadata.split)
+VPL.round2.obj <- celltypescoring.CT(filepath.in = VPL.round2.obj, markers = module.markers, figdir.in = figdir.cluster,
+                                       project.name.in = project.name, save.tiered.folder = FALSE, 
+                                       dimplot_split_in = metadata.split, barstacks_in = metadata.barstacks)
+
+VPL.round2.obj <- pathway.analysis.CT(folderpath.in = VPL.round2.obj,
+                                        figdir.in = figdir.cluster, marker.logfc.thresh = 0.75,
+                                        project.name.in = project.name, gsea.category = "C5", gsea.subcategory = "GO:BP", gsea.species = "Mus musculus",
+                                        run.GSEA = FALSE, run.PROGENy = FALSE, run.DoRothEA = FALSE)
+DefaultAssay(VPL.round2.obj) <- "RNA"
+saveRDS(VPL.round2.obj, file = paste0(figdir.cluster, "/", project.name, "_optimized.rds"))
+
+
+```
+
+
+FIN pour annotation merged data 15.29.26
