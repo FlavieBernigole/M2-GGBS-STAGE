@@ -1,7 +1,7 @@
 ---
 title: "CellChat"
-output:
-html_document:
+authors : "Flavie BERNIGOLE"
+output: html_document
 encoding: UTF-8
 ---
 
@@ -9,7 +9,7 @@ encoding: UTF-8
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Analyse des donn?es INVOLUTION : analyse des communication cellule-cellule (CellChat)
+## Analyse des donnees: analyse des communication cellule-cellule (CellChat)
 
 ```{r}
 # Chargement des librairies
@@ -50,103 +50,25 @@ options(StringsAsFactors = FALSE)
 
 ```{r}
 # Chargement des donnees
-
 objet_seurat<-readRDS("~/EP2C/ObjetSeqwell/Annotation_v3/VPLI_152926_STARsolo_Round3Tier1_optimized.rds")
-objet_seurat@meta.data$Annotation <- NA
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 0] <- "Fibroblasts"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 1] <- "BasalCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 2] <- "Bcells-PlasmaCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 3] <- "Tcells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 4] <- "Bcells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 5] <- "MilkProducingepicells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 6] <- "Macrophages"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 7] <- "LuminalCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 8] <- "LuminalCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 9] <- "EndothelialCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 10] <- "LuminalCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 11] <- "HybridEpiCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 12] <- "PlasmaCells"
-objet_seurat@meta.data$Annotation[objet_seurat@meta.data$seurat_clusters == 13] <- "Mastocytes"
 
-
-
-saveRDS(objet_seurat,file="~/EP2C/ObjetSeqwell/CellChat2/objet_seurat.rds")
-
-
-#EpithelialCells
-clusters_of_interest <- c(1, 5, 7, 8, 10, 11)
-colors <- c("#9370DB", "#DDA0DD", "#EE82EE", "#DA70D6", "#BA55D3", "#9932CC")
-
-all_clusters <- unique(objet_seurat@meta.data$seurat_clusters)
-color_vector <- rep("grey", length(all_clusters))
-names(color_vector) <- all_clusters
-
-for (i in seq_along(clusters_of_interest)) {
-  cluster <- clusters_of_interest[i]
-  color <- colors[i]
-  color_vector[as.character(cluster)] <- color
-}
-
-p<-DimPlot(objet_seurat, reduction = "umap", group.by = "seurat_clusters", cols = color_vector) +
-  scale_color_manual(values = color_vector)
-print(p)
-
-
-#ImmmuneCells
-clusters_of_interest <- c(0,2,3,4,6,9,12,13)
-colors <- c("#F5DEB3", "#D2B48C", "#CD853F", "#8B4513", "#8B5513","#FFA500", "#FF8C00","#DEB887")
-
-
-all_clusters <- unique(objet_seurat@meta.data$seurat_clusters)
-color_vector <- rep("grey", length(all_clusters))
-names(color_vector) <- all_clusters
-
-for (i in seq_along(clusters_of_interest)) {
-  cluster <- clusters_of_interest[i]
-  color <- colors[i]
-  color_vector[as.character(cluster)] <- color
-}
-
-p<-DimPlot(objet_seurat, reduction = "umap", group.by = "seurat_clusters", cols = color_vector) +
-  scale_color_manual(values = color_vector)
-print(p)
-
-
-
-
-
-
-
-
-objet_seurat<- readRDS("~/EP2C/ObjetSeqwell/CellChay2/objet_seurat.rds")
-
+#Selection des données par stade + Enlever les Fibroblastes pour deuxième visualisation
 VIR<- subset(objet_seurat, dvpmt.stage=="Virgin")
-VIR<- subset(VIR, subset = Annotation != "Fibroblasts")
+#VIR<- subset(VIR, subset = Annotation != "Fibroblasts")
 
 PRE<- subset(objet_seurat, dvpmt.stage == "Pregnant")
-PRE<- subset(PRE, subset = Annotation != "Fibroblasts")
+#PRE<- subset(PRE, subset = Annotation != "Fibroblasts")
 
 LACT<- subset(objet_seurat, dvpmt.stage == "Lactation")
-LACT<- subset(LACT, subset = Annotation != "Fibroblasts")
+#LACT<- subset(LACT, subset = Annotation != "Fibroblasts")
 
 INV<- subset(objet_seurat, dvpmt.stage == "Involution")
-INV<- subset(INV, subset = Annotation != "Fibroblasts")
-
-
-
-
-#VIR <- subset(INV, subset = Annotation != "Milkderivedepicells")
-#PRE<- subset(INV, subset = Annotation != "Milkderivedepicells")
+#INV<- subset(INV, subset = Annotation != "Fibroblasts")
 
 ```
 
-
-
-
-
-
 ```{r}
-#Cr?ation de l'object CellChat
+#Création de l'object CellChat
 CellchatSW <- createCellChat(object = INV, group.by = "Annotation")
 
 #Mise en place de la base de donnees de la souris
@@ -184,11 +106,7 @@ interaction_count_matrix <- CellchatSW@net$count
 interaction_count_df <- as.data.frame(as.table(interaction_count_matrix))
 print(interaction_count_df)
 write.csv(interaction_count_df, file = "~/EP2C/ObjetSeqwell/CellChat2/LACT/interaction_count_LACT_sansfibro.csv", row.names = FALSE)
-
-
 ```
-
-
 
 ```{r,,fig.height=12}
 
@@ -198,161 +116,12 @@ par(mfrow = c(1,2), xpd=TRUE)
 netVisual_circle(CellchatSW@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
 netVisual_circle(CellchatSW@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 
-
-
 ```
 
 
-##Partie 3 : Visualisation du r?seau de communication cellule-cellule
-
 ```{r, fig.width=10}
-
-#Visualisation de chaque voie de signalisation ? l'aide d'un trac? hi?rarchique, circulaire ou Diagramme d'accords
-
-pathways.show <-  c("APP") #Pathways en exemple (? modifier si besoin)
-
-levels(CellchatSW@idents)
-vertex.receiver = seq(1,4)
-for (i in 1:length(pathways.show)) {
-  netVisual(CellchatSW, signaling = pathways.show[i], vertex.receiver = vertex.receiver, layout = "hierarchy")
-  
-  gg <- netAnalysis_contribution(CellchatSW, signaling = pathways.show[i])
-  ggsave(filename=paste0(pathways.show[i], "_L-R_contribution.pdf"), plot=gg, width = 3, height = 2, units = 'in', dpi = 300)
-}
-
-pathways.show <- c("APP") 
-vertex.receiver = seq(1,6)  
-netVisual_aggregate(CellchatSW, signaling = pathways.show,  vertex.receiver = vertex.receiver)
-par(mfrow=c(1,1))
-netVisual_aggregate(CellchatSW, signaling = pathways.show, layout = "circle")
-
+#Visualisation de la communication cellule-cellule sous forme de heatmap
 par(mfrow=c(1,1))
 netVisual_heatmap(CellchatSW,color.heatmap = "Reds")
 
-
-```
-
-
-
-
-
-
-
-
-
-
-```{r, fig.height=20}
-#Calculer la contribution de chaque paire ligand recepteur ? l'ensemble de la voie de signalisation
-
-netAnalysis_contribution(CellchatSW, signaling = "APP")
-
-#communication cellule cellule m?di? par une seule paire ligand-recepteur
-#pairLR.CXCL <- extractEnrichedLR(cellchatINV, signaling = pathways.show.all, geneLR.return = FALSE)
-#LR.show <- pairLR.CXCL[1,] #Compl?ter avec ligand-recepteur voulu
-# Hierarchy plot
-#vertex.receiver = seq(1,4) # a numeric vector
-#netVisual_individual(cellchatINV, signaling = pathways.show.all,  pairLR.use = LR.show, vertex.receiver = vertex.receiver)
-# Circle plot
-#netVisual_individual(cellchatINV, signaling = pathways.show.all, pairLR.use = LR.show, layout = "circle")
-# Chord diagram
-#netVisual_individual(cellchatINV, signaling = pathways.show.all, pairLR.use = LR.show, layout = "chord")
-
-
-
-group.cellType <- c(rep("BasalCells", 4), rep("Macrophages", 4), rep("Bcells", 4))
-group.cellType <- factor(group.cellType, levels = c("BasalCells", "Macrophages", "Bcells"))
-object.list <- lapply(objet_seurat, function(x) {mergeInteractions(x, group.cellType)})
-cellchat <- mergeCellChat(object.list, add.names = names(object.list))
-
-
-
-
-```
-
-```{r, echo=FALSE, fig.width=13}
-#Communication entres celllules m?di?e par des multiples R?cepteurs-ligands ou voies de signalisation
-netVisual_bubble(CellchatSW, sources.use = 7, targets.use = c(1:10), remove.isolate = FALSE)
-netVisual_bubble(CellchatSW, sources.use = 1, targets.use = c(1:10), remove.isolate = FALSE)
-
-
-```
-
-
-```{r, fig.width=10, fig.height=12}
-#Diagramme d'accord
-netVisual_chord_gene(CellchatSW, sources.use = 1, targets.use = c(1,2,3,4,5,6,7,8), lab.cex = 0.7,legend.pos.y = 30)
-netVisual_chord_gene(CellchatSW, sources.use =  c(1,2,3,4,5,6,7,8), targets.use = 1, lab.cex = 0.5,legend.pos.y = 30)
-```
-
-```{r, fig.width=10, fig.height=12}
-netVisual_chord_gene(CellchatSW, sources.use = c(1), targets.use = c(1,2,3,4,5,6,7,8), lab.cex = 0.7,legend.pos.y = 30)
-netVisual_chord_gene(cellchatINV, sources.use = c(1,3,4,6,9,10,11,12), targets.use = c(2,7,8), lab.cex = 0.7,legend.pos.y = 30)
-```
-
-
-
-```{r, fig.width=10}
-#Repr?sentation Violon
-plotGeneExpression(CellchatSW, signaling = "APP")
-```
-
-#Partie IV : Analyse des syst?mes de r?seau de communication cellule-cellule
-```{r, fig.width=10}
-#Identifier les r?les de signalisation de la cellule ainsi que les principaux groupes de signalisation
-CellchatSW <- netAnalysis_computeCentrality(CellchatSW, slot.name = "netP") 
-netAnalysis_signalingRole_network(CellchatSW, signaling = "APP", width = 8, height = 2.5, font.size = 10)
-```
-
-```{r,fig.width=10}
-# Visualisez les ?metteurs (sources) et les destinataires (cibles) dominants dans un espace 2D
-gg1 <- netAnalysis_signalingRole_scatter(CellchatSW)
-gg2 <- netAnalysis_signalingRole_scatter(CellchatSW, signaling = c("APP"))
-gg1 + gg2
-```
-
-```{r, fig.height=6}
-#Identifier les signaux qui contribuent le plus ? la signalisation sortante ou entrante de certains groupes cellulaires
-ht1 <- netAnalysis_signalingRole_heatmap(CellchatSW, pattern = "outgoing")
-ht2 <- netAnalysis_signalingRole_heatmap(CellchatSW, pattern = "incoming")
-ht1 + ht2
-```
-
-```{r, fig.width=10}
-#Identifier et visualiser le mod?le de communication sortante de la s?cr?tion Cellules$
-selectK(cellchatINV, pattern = "outgoing")
-```
-
-```{r, fig.width=9}
-nPatterns = 5
-cellchatINV<- identifyCommunicationPatterns(cellchatINV, pattern = "outgoing", k = nPatterns)
-```
-
-```{r,fig.width=10}
-netAnalysis_river(cellchatINV, pattern = "outgoing")
-
-netAnalysis_dot(cellchatINV, pattern = "outgoing")
-```
-
-```{r, fig.width=10}
-#Identifier et visualiser le mod?le de communication entrante
-selectK(cellchatINV, pattern = "incoming")
-
-```
-
-```{r, fig.width=9}
-nPatterns = 3
-cellchatINV <- identifyCommunicationPatterns(cellchatINV, pattern = "incoming", k = nPatterns)
-```
-
-```{r,fig.width=10}
-netAnalysis_river(cellchatINV, pattern = "incoming")
-netAnalysis_dot(cellchatINV, pattern = "incoming")
-```
-
-
-
-Sauvegarde de l'objet R final : 
-
-```{r}
-saveRDS(cellchatINV, "~/EP2C/CellChat/cellchatINV_new_annot_ALL_INV.rds")
 ```
